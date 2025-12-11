@@ -10,258 +10,175 @@ class SistemaInventario:
         
     @property
     def df(self):
-        """Propiedad que retorna DataFrame de productos"""
+        """
+        Propiedad que retorna el inventario completo como DataFrame.
+        Incluye un 'Adaptador Universal' para manejar listas o DataFrames.
+        """
         try:
-            df = self.db.exportar_a_dataframe()
-            # Asegurar tipos de datos correctos
+            # 1. Obtener datos crudos de la BD
+            datos = self.db.exportar_a_dataframe()
+            
+            # 2. Adaptador: Si llega una lista, convertirla a DataFrame
+            if isinstance(datos, list):
+                df = pd.DataFrame(datos)
+            else:
+                df = datos # Ya es un DataFrame
+                
+            # 3. Limpieza de tipos de datos
             if not df.empty:
-                df['precio_compra'] = pd.to_numeric(df['precio_compra'], errors='coerce').fillna(0)
-                df['precio_venta'] = pd.to_numeric(df['precio_venta'], errors='coerce').fillna(0)
-                df['stock'] = pd.to_numeric(df['stock'], errors='coerce').fillna(0).astype(int)
+                cols_numericas = ['precio_compra', 'precio_venta', 'stock', 'stock_minimo']
+                for col in cols_numericas:
+                    if col in df.columns:
+                        # Forzamos conversión a número, los errores se vuelven 0
+                        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             return df
         except Exception as e:
-            print(f"Error obteniendo DataFrame: {e}")
+            print(f"Error crítico obteniendo DataFrame: {e}")
             return pd.DataFrame()
     
     def obtener_kpis(self):
+        """Obtiene indicadores clave de rendimiento"""
         return self.db.obtener_kpis()
     
     def buscar_funcional(self, busqueda=""):
-        productos = self.db.obtener_productos(busqueda)
-        # Convertir a DataFrame asegurando tipos
-        if productos:
-            df = pd.DataFrame(productos)
-            # Convertir columnas numéricas
-            numeric_cols = ['precio_compra', 'precio_venta', 'stock', 'stock_minimo']
-            for col in numeric_cols:
-                if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        """Busca productos y retorna un DataFrame limpio"""
+        try:
+            # Obtener datos (puede ser lista o DF)
+            datos = self.db.obtener_productos(busqueda)
+            
+            # Adaptador
+            if isinstance(datos, list):
+                df = pd.DataFrame(datos)
+            else:
+                df = datos
+            
+            # Limpieza
+            if not df.empty:
+                cols_numericas = ['precio_compra', 'precio_venta', 'stock', 'stock_minimo']
+                for col in cols_numericas:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             return df
-        return pd.DataFrame()
+        except Exception as e:
+            print(f"Error en búsqueda: {e}")
+            return pd.DataFrame()
+    
+    # --- MÉTODOS DE ESCRITURA (Pasamanos a la BD) ---
     
     def registrar_movimiento(self, sku, cantidad, tipo, motivo=""):
-        tipo_db = "entrada" if tipo == "Entrada" else "salida"
-        return self.db.actualizar_stock(sku, cantidad, tipo_db)
+        # Normalizamos el tipo para la base de datos (minusculas)
+        tipo_db = "entrada" if tipo.lower() == "entrada" else "salida"
+        return self.db.actualizar_stock(sku, cantidad, tipo_db, motivo)
     
     def registrar_producto(self, sku, nombre, categoria, marca, precio_compra, precio_venta, stock):
         return self.db.agregar_producto(sku, nombre, categoria, marca, precio_compra, precio_venta, stock)
     
+    # --- MÉTODOS DE HISTORIAL ---
+    
     def obtener_historial_movimientos(self, limit=10):
+        # Devuelve lista de diccionarios (perfecto para Streamlit)
         return self.db.obtener_movimientos_recientes(limit)
     
     def obtener_historial_completo(self):
         return self.db.obtener_historial()
     
-    # --- FUNCIONES DE CONVERSIÓN SEGURA ---
+    # --- LÓGICA DE NEGOCIO Y PROG. FUNCIONAL ---
+    
     def _convertir_valor_seguro(self, valor, tipo_esperado):
-        """Convertir valor de forma segura al tipo esperado"""
+        """Ayudante para conversiones seguras de tipos"""
         try:
             if tipo_esperado == 'float':
                 return float(valor)
             elif tipo_esperado == 'int':
-                # Primero intentar como float, luego como int
-                try:
-                    return int(float(valor))
-                except:
-                    return int(valor)
-            else:
-                return str(valor)
-        except (ValueError, TypeError):
-            # Si falla la conversión, retornar valor por defecto
-            if tipo_esperado == 'float':
-                return 0.0
-            elif tipo_esperado == 'int':
-                return 0
-            else:
-                return ""
-    
-    # --- FUNCIONES DE PROGRAMACIÓN FUNCIONAL (LO APRENDIDO EN CLASES) ---
-    
+                return int(float(valor)) # Maneja strings como "5.0"
+            return str(valor)
+        except:
+            return 0 if tipo_esperado in ['int', 'float'] else ""
+
     def aplicar_descuento(self, porcentaje):
-        """Aplica descuento a todos los productos usando map"""
+        """Proyección de precios usando map (Programación Funcional)"""
         try:
-            productos = self.db.obtener_productos("")
-            if not productos:
-                return []
+            productos = self.db.obtener_productos("") # Devuelve lista
+            if not productos: return []
             
-            # Convertir porcentaje a float
-            porcentaje_float = self._convertir_valor_seguro(porcentaje, 'float')
+            # Si devuelve DF, convertir a lista de dicts para usar map
+            if isinstance(productos, pd.DataFrame):
+                productos = productos.to_dict('records')
             
-            # Usando map para transformar
-            productos_con_descuento = list(map(
+            pct = self._convertir_valor_seguro(porcentaje, 'float')
+            
+            # map devuelve un iterador, lo convertimos a lista
+            return list(map(
                 lambda p: {
                     **p,
-                    'precio_venta_con_descuento': float(p.get('precio_venta', 0)) * (1 - porcentaje_float/100),
-                    'descuento_aplicado': porcentaje_float
+                    'precio_venta_con_descuento': float(p.get('precio_venta', 0)) * (1 - pct/100),
+                    'descuento_aplicado': pct
                 },
                 productos
             ))
-            return productos_con_descuento
         except Exception as e:
-            print(f"Error aplicando descuento: {e}")
+            print(f"Error en map: {e}")
             return []
-    
+
     def obtener_productos_criticos(self, umbral=5):
-        """Obtiene productos con stock crítico usando filter"""
+        """Filtrado de stock bajo usando filter (Programación Funcional)"""
         try:
             productos = self.db.obtener_productos("")
-            if not productos:
-                return []
+            if not productos: return []
             
-            # Convertir umbral a int
-            umbral_int = self._convertir_valor_seguro(umbral, 'int')
+            if isinstance(productos, pd.DataFrame):
+                productos = productos.to_dict('records')
             
-            # Usando filter con conversión segura
-            productos_criticos = list(filter(
-                lambda p: int(p.get('stock', 0)) < umbral_int,
+            limite = self._convertir_valor_seguro(umbral, 'int')
+            
+            return list(filter(
+                lambda p: int(p.get('stock', 0)) < limite,
                 productos
             ))
-            return productos_criticos
         except Exception as e:
-            print(f"Error obteniendo productos críticos: {e}")
+            print(f"Error en filter: {e}")
             return []
-    
+
     def calcular_valor_total_inventario(self):
-        """Calcula valor total del inventario usando reduce"""
+        """Cálculo acumulativo usando reduce (Programación Funcional)"""
         try:
             productos = self.db.obtener_productos("")
-            if not productos:
-                return 0.0
+            if not productos: return 0.0
             
-            # Usando reduce con conversión segura
-            valor_total = reduce(
+            if isinstance(productos, pd.DataFrame):
+                productos = productos.to_dict('records')
+                
+            return reduce(
                 lambda acc, p: acc + (float(p.get('precio_compra', 0)) * int(p.get('stock', 0))),
-                productos,
+                productos, 
                 0.0
             )
-            return valor_total
         except Exception as e:
-            print(f"Error calculando valor total: {e}")
+            print(f"Error en reduce: {e}")
             return 0.0
-    
-    def buscar_avanzado(self, criterio, valor):
-        """Búsqueda avanzada con funciones lambda - Versión segura"""
-        productos = self.db.obtener_productos("")
-        
-        try:
-            if criterio == "precio_mayor":
-                valor_convertido = self._convertir_valor_seguro(valor, 'float')
-                return list(filter(
-                    lambda p: float(p.get('precio_venta', 0)) > valor_convertido, 
-                    productos
-                ))
-            
-            elif criterio == "precio_menor":
-                valor_convertido = self._convertir_valor_seguro(valor, 'float')
-                return list(filter(
-                    lambda p: float(p.get('precio_venta', 0)) < valor_convertido, 
-                    productos
-                ))
-            
-            elif criterio == "stock_bajo":
-                valor_convertido = self._convertir_valor_seguro(valor, 'int')
-                return list(filter(
-                    lambda p: int(p.get('stock', 0)) < valor_convertido, 
-                    productos
-                ))
-            
-            elif criterio == "marca":
-                valor_str = str(valor)
-                return list(filter(
-                    lambda p: valor_str.lower() in str(p.get('marca', '')).lower(), 
-                    productos
-                ))
-            
-            else:
-                return productos
-                
-        except Exception as e:
-            print(f"Error en búsqueda avanzada: {e}")
-            return productos
-    
-    # --- DICCIONARIOS AVANZADOS (LO APRENDIDO EN CLASES) ---
-    
-    def obtener_estadisticas_avanzadas(self):
-        """Obtener estadísticas avanzadas usando diccionarios anidados"""
-        return self.db.obtener_estadisticas_avanzadas()
+
+    # --- ENLACES A MÓDULOS DE ANÁLISIS ---
     
     def obtener_reporte_consolidado(self):
-        """Obtener reporte consolidado"""
         return self.db.obtener_reporte_consolidado()
-    
-    # --- NUMPY - CIENCIA DE DATOS (LO APRENDIDO EN CLASES) ---
-    
+        
+    def obtener_estadisticas_avanzadas(self):
+        return self.db.obtener_estadisticas_avanzadas()
+
     def analizar_precios_numpy(self):
-        """Análisis de precios usando NumPy"""
-        return self.analizador_numpy.analizar_precios()
+        # Delega al módulo de numpy
+        if self.analizador_numpy:
+            return self.analizador_numpy.analizar_precios()
+        return {}
     
     def identificar_outliers_numpy(self):
-        """Identificar outliers usando NumPy"""
-        return self.analizador_numpy.identificar_outliers()
-    
-    def analizar_correlaciones_numpy(self):
-        """Analizar correlaciones usando NumPy"""
-        return self.analizador_numpy.analisis_clustering_basico()
-    
-    # --- EJERCICIOS PRÁCTICOS DE CLASE APLICADOS ---
-    
+        if self.analizador_numpy:
+            return self.analizador_numpy.identificar_outliers()
+        return []
+        
     def ejercicio_numpy_reshape(self):
-        """Aplicar ejercicio de reshape de arrays 1D a 2D"""
-        try:
-            import numpy as np
-            productos = self.db.obtener_productos("")
-            
-            if len(productos) >= 12:
-                # Tomar stocks de primeros 12 productos, convertir a enteros de forma segura
-                stocks = []
-                for p in productos[:12]:
-                    try:
-                        stocks.append(int(p.get('stock', 0)))
-                    except:
-                        stocks.append(0)
-                
-                stocks = np.array(stocks)
-                stocks_2d = stocks.reshape(4, 3)
-                
-                return {
-                    "original": stocks.tolist(),
-                    "reshaped": stocks_2d.tolist(),
-                    "forma_original": stocks.shape,
-                    "forma_nueva": stocks_2d.shape
-                }
-            else:
-                return {"error": "Se necesitan al menos 12 productos"}
-        except Exception as e:
-            return {"error": str(e)}
-    
+        # Intenta usar el método de DB o retorna vacío si no existe
+        return self.db.ejercicio_numpy_reshape() if hasattr(self.db, 'ejercicio_numpy_reshape') else {}
+        
     def ejercicio_numpy_sort(self):
-        """Aplicar ejercicio de ordenamiento por diferentes ejes"""
-        try:
-            import numpy as np
-            productos = self.db.obtener_productos("")
-            
-            if len(productos) >= 4:
-                # Crear matriz con precios y stocks, asegurando tipos numéricos
-                datos = []
-                for p in productos[:4]:
-                    try:
-                        datos.append([
-                            float(p.get('precio_compra', 0)), 
-                            float(p.get('precio_venta', 0)), 
-                            int(p.get('stock', 0))
-                        ])
-                    except:
-                        datos.append([0.0, 0.0, 0])
-                
-                datos = np.array(datos)
-                
-                return {
-                    "original": datos.tolist(),
-                    "ordenado_eje_0": np.sort(datos, axis=0).tolist(),
-                    "ordenado_eje_1": np.sort(datos, axis=1).tolist(),
-                    "aplanado_ordenado": np.sort(datos.flatten()).tolist()
-                }
-            else:
-                return {"error": "Se necesitan al menos 4 productos"}
-        except Exception as e:
-            return {"error": str(e)}
+        return self.db.ejercicio_numpy_sort() if hasattr(self.db, 'ejercicio_numpy_sort') else {}
