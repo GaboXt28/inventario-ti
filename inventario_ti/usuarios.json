@@ -1,0 +1,26 @@
+{
+    "admin": {
+        "contrasena_hash": "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9",
+        "nombre": "Administrador Principal",
+        "rol": "admin",
+        "avatar": "\ud83d\udc51",
+        "fecha_creacion": "2025-12-03",
+        "fecha_ultimo_acceso": "2025-12-11 13:49:26"
+    },
+    "supervisor": {
+        "contrasena_hash": "1c8b3a939e438b44507d10fe725bc34c206a0a9d0189be00e47300b4e8e6d6d9",
+        "nombre": "Supervisor de Inventario TI",
+        "rol": "supervisor",
+        "avatar": "\ud83d\udc68\u200d\ud83d\udcbc",
+        "fecha_creacion": "2025-12-03",
+        "fecha_ultimo_acceso": "2025-12-03 17:12:25"
+    },
+    "milagros": {
+        "contrasena_hash": "1e42261225937739d7cbc099bec1a27cb9f92b47205a6d967ed8dee375790d4e",
+        "nombre": "Milagros",
+        "rol": "supervisor",
+        "avatar": "\ud83d\udc69\u200d\ud83d\udcbc",
+        "fecha_creacion": "2025-12-03",
+        "fecha_ultimo_acceso": "2025-12-03 17:12:25"
+    }
+}
