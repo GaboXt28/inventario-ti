@@ -43,20 +43,53 @@ class SistemaInventario:
     def analizar_precios_numpy(self): return self.analizador_numpy.analizar_precios()
     def identificar_outliers_numpy(self): return self.analizador_numpy.identificar_outliers()
     
+    # --- PROGRAMACIÓN FUNCIONAL (MAP, FILTER, REDUCE) ---
+
     def aplicar_descuento(self, pct):
+        """
+        Usa MAP para transformar los precios sin modificar la lista original.
+        """
         try:
             prods = self.db.obtener_productos("")
-            return [{**p, 'nuevo_precio': p['precio_venta']*(1-pct/100)} for p in prods]
+            
+            # --- AQUÍ ESTÁ EL MAP ---
+            # Transformamos cada producto 'p' calculando su nuevo precio
+            return list(map(
+                lambda p: {
+                    **p, 
+                    'nuevo_precio': float(p.get('precio_venta', 0)) * (1 - pct/100)
+                }, 
+                prods
+            ))
         except: return []
 
     def obtener_productos_criticos(self, umbral=5):
+        """
+        Usa FILTER para seleccionar productos con bajo stock.
+        """
         try:
             prods = self.db.obtener_productos("")
-            return [p for p in prods if p.get('stock', 0) < umbral]
+            
+            # --- AQUÍ ESTÁ EL FILTER ---
+            # Filtramos solo los que cumplen la condición lambda
+            return list(filter(
+                lambda p: int(p.get('stock', 0)) < umbral, 
+                prods
+            ))
         except: return []
 
     def calcular_valor_total_inventario(self):
+        """
+        Usa REDUCE para acumular el valor total.
+        """
         try:
             prods = self.db.obtener_productos("")
-            return reduce(lambda a,b: a + (b['precio_compra']*b['stock']), prods, 0)
+            
+            # --- AQUÍ ESTÁ EL REDUCE ---
+            # Acumula: acumulador + (precio * stock)
+            return reduce(
+                lambda acc, p: acc + (float(p.get('precio_compra', 0)) * int(p.get('stock', 0))), 
+                prods, 
+                0.0
+            )
         except: return 0
